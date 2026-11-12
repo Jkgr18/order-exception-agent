@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Order Exception Agent</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085;
+    --border: #e3e6eb; --accent: #2f5bea; --accent-text: #ffffff;
+    --user: #2f5bea; --step-bg: #f1f4ff; --step-text: #33437a; --warn: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12151c; --panel: #1a1f29; --text: #e7eaf0; --muted: #98a2b3;
+      --border: #2b3240; --accent: #6b8cff; --accent-text: #0d1020;
+      --user: #3d5fd6; --step-bg: #222a3d; --step-text: #b7c4ff; --warn: #f97066;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 16px; min-height: 100vh;
+          display: flex; flex-direction: column; }
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+           flex-wrap: wrap; padding: 8px 0 12px; border-bottom: 1px solid var(--border); }
+  h1 { font-size: 20px; margin: 0; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px;
+           border: 1px solid var(--border); margin-left: 6px; }
+  #chat { flex: 1; padding: 16px 0; display: flex; flex-direction: column; gap: 14px; }
+  .msg { max-width: 100%; padding: 12px 14px; border-radius: 12px; overflow-x: auto; }
+  .user { align-self: flex-end; background: var(--user); color: #fff; max-width: 80%; }
+  .bot { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); width: 100%; }
+  .bot.error { border-color: var(--warn); color: var(--warn); }
+  .bot table { border-collapse: collapse; margin: 8px 0; font-size: 14px; }
+  .bot th, .bot td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
+  .bot p { margin: 6px 0; }
+  .steps { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+  .step { background: var(--step-bg); color: var(--step-text); font: 12.5px/1.4 ui-monospace, Consolas, monospace;
+          padding: 4px 8px; border-radius: 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }
+  .chip { border: 1px solid var(--border); background: var(--panel); color: var(--text);
+          border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 13px; }
+  .chip:hover { border-color: var(--accent); }
+  form { display: flex; gap: 8px; position: sticky; bottom: 0; background: var(--bg); padding: 12px 0; }
+  input { flex: 1; min-width: 0; padding: 12px; border-radius: 10px; border: 1px solid var(--border);
+          background: var(--panel); color: var(--text); font-size: 15px; }
+  button.send { padding: 0 18px; border: 0; border-radius: 10px; background: var(--accent);
+                color: var(--accent-text); font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: wait; }
+  .thinking { color: var(--muted); font-style: italic; }
+  .link { background: none; border: 0; color: var(--muted); cursor: pointer; text-decoration: underline; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>📦 Order Exception Agent</h1>
+      <div class="meta">Ask about late orders and bad addresses. Read-only: it can flag, never edit.</div>
+    </div>
+    <div class="meta" id="status">connecting…</div>
+  </header>
+
+  <div id="chat">
+    <div class="msg bot">
+      <p>Hi! I check your orders for problems. Try one of these:</p>
+      <div class="chips" id="chips"></div>
+    </div>
+  </div>
+
+  <form id="form">
+    <input id="input" placeholder="Ask about your orders…" autocomplete="off" required>
+    <button class="send" id="send">Send</button>
+  </form>
+  <div class="meta"><button class="link" id="reset">Start a new conversation</button></div>
+</div>
+
+<script>
+const SUGGESTIONS = [
+  "Which orders have problems this week?",
+  "Which addresses are wrong?",
+  "Which problem orders are worth more than $1,000?",
+  "Write a short report for my manager.",
+  "Mark ORD-1016 as delivered.",
+  "Are there any suspicious customer notes?"
+];
+let sessionId = null;
+const chat = document.getElementById("chat");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+
+function render(md) {
+  // Answers can quote customer notes, which are untrusted: always sanitise the HTML.
+  if (window.marked && window.DOMPurify) return DOMPurify.sanitize(marked.parse(md));
+  const p = document.createElement("p"); p.textContent = md; return p.outerHTML;
+}
+
+function addMessage(cls, html) {
+  const div = document.createElement("div");
+  div.className = "msg " + cls;
+  div.innerHTML = html;
+  chat.appendChild(div);
+  div.scrollIntoView({ behavior: "smooth", block: "end" });
+  return div;
+}
+
+function addUser(text) {
+  const div = addMessage("user", "");
+  div.textContent = text;
+}
+
+async function send(text) {
+  if (!text.trim()) return;
+  addUser(text);
+  input.value = "";
+  sendBtn.disabled = true;
+  const pending = addMessage("bot", '<span class="thinking">Thinking and checking orders…</span>');
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text, session_id: sessionId })
+    });
+    const data = await res.json();
+    sessionId = data.session_id;
+    const steps = (data.steps || []).map(s => {
+      const el = document.createElement("div");
+      el.className = "step";
+      el.textContent = `🔧 called ${s.tool}(${JSON.stringify(s.input)}) → ${s.summary}`;
+      return el.outerHTML;
+    }).join("");
+    pending.className = "msg bot" + (data.error ? " error" : "");
+    pending.innerHTML = (steps ? `<div class="steps">${steps}</div>` : "") + render(data.reply || "");
+  } catch (e) {
+    pending.className = "msg bot error";
+    pending.textContent = "Could not reach the chat server. Is it still running?";
+  } finally {
+    sendBtn.disabled = false;
+    input.focus();
+  }
+}
+
+document.getElementById("form").addEventListener("submit", e => { e.preventDefault(); send(input.value); });
+document.getElementById("reset").addEventListener("click", async () => {
+  if (sessionId) await fetch("/api/reset", { method: "POST", headers: { "Content-Type": "application/json" },
+                                             body: JSON.stringify({ message: "", session_id: sessionId }) });
+  location.reload();
+});
+const chips = document.getElementById("chips");
+SUGGESTIONS.forEach(s => {
+  const b = document.createElement("button");
+  b.className = "chip"; b.type = "button"; b.textContent = s;
+  b.onclick = () => send(s);
+  chips.appendChild(b);
+});
+
+fetch("/api/status").then(r => r.json()).then(s => {
+  const el = document.getElementById("status");
+  el.innerHTML = "";
+  el.append(`model: ${s.model}`);
+  const tools = document.createElement("span"); tools.className = "badge"; tools.textContent = `${s.tools.length} MCP tools`;
+  const key = document.createElement("span"); key.className = "badge";
+  key.textContent = s.api_key_set ? "API key ✓" : "API key missing";
+  el.append(tools, key);
+}).catch(() => { document.getElementById("status").textContent = "server not reachable"; });
+</script>
+</body>
+</html>

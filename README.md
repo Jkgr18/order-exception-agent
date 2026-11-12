@@ -73,8 +73,28 @@ Reset: `psql -h localhost -p 5433 -U ops_admin -d orders -c "TRUNCATE orders RES
 ```bash
 python -m venv .venv
 .venv/Scripts/python -m pip install -r requirements.txt   # macOS/Linux: .venv/bin/python
-.venv/Scripts/python -m pytest -v          # 13 tests
+.venv/Scripts/python -m pytest -v          # 16 tests
 ```
+
+### Chatbot web page (your own MCP client)
+
+`chat_app/` is a small web chatbot that is **its own MCP client**: it starts `server/server.py`,
+discovers the tools, and runs the agent loop with the Claude API, showing each tool call on screen.
+
+```
+Browser ─► chat_app/app.py (FastAPI) ─► chat_app/agent.py
+                                          ├─ Claude API (claude-opus-5-5): decides which tool to call
+                                          └─ MCP client ─► server/server.py ─► Postgres
+```
+
+1. Get an API key at console.anthropic.com, copy `.env.example` to `.env` and paste the key there
+   (`.env` is git-ignored).
+2. Run `.venv/Scripts/python -m chat_app.app` and open http://localhost:8000
+
+The loop is written by hand on purpose so each step is visible:
+*model → tool call → result → next step → … → answer*. `tests/test_chat_agent.py` tests it with a
+scripted fake model (no API key, no cost) against the real MCP server and database, including a
+model that tries to call a non-existent `update_order` tool.
 
 ### Connect to Claude Code
 `.mcp.json` is already in the repo. Open the folder in Claude Code, approve the server, then ask:
