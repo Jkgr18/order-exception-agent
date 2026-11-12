@@ -1,0 +1,13 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: order-exception-db
+    environment:
+      POSTGRES_USER: ops_admin          # owner: used only by init scripts (full rights)
+      POSTGRES_PASSWORD: ops_admin_pw   # demo-only password, local machine
+      POSTGRES_DB: orders
+    ports:
+      - "5433:5432"                     # 5433 on host so it won't clash with a local Postgres
+    volumes:
+      # Scripts in this folder run once, alphabetically, on first start.
+      - ./db/init:/docker-entrypoint-initdb.d:ro

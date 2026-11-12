@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "order-exception-agent": {
+      "command": ".venv/Scripts/python.exe",
+      "args": ["server/server.py"],
+      "env": {
+        "DATABASE_URL": "postgresql://agent_ro:agent_ro_pw@localhost:5433/orders"
+      }
+    }
+  }
+}
